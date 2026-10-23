@@ -1,0 +1,766 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agy-security://schemas/tools/scan-draft.schema.json",
+  "title": "AGY Security semantic scan draft",
+  "$ref": "#/$defs/scanDraftInput",
+  "$defs": {
+    "text": {
+      "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+    },
+    "textList": {
+      "type": "array",
+      "items": {
+        "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+      }
+    },
+    "scanId": {
+      "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/scanId"
+    },
+    "handoffClaimToken": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|recovery_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+    },
+    "repositoryPath": {
+      "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/repositoryPath"
+    },
+    "location": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/repositoryPath"
+        },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "role": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        }
+      },
+      "required": ["path", "startLine"],
+      "additionalProperties": true
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "anchor": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*$" },
+        "instance": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*$" }
+      },
+      "required": ["anchor"],
+      "additionalProperties": true
+    },
+    "severity": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "enum": ["critical", "high", "medium", "low", "informational"]
+        },
+        "score": { "type": "number", "minimum": 0, "maximum": 10 },
+        "scoringSystem": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "vector": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "rationale": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "changeConditions": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        }
+      },
+      "required": ["level"],
+      "additionalProperties": true
+    },
+    "confidence": {
+      "type": "object",
+      "properties": {
+        "level": { "enum": ["high", "medium", "low"] },
+        "rationale": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        }
+      },
+      "required": ["level", "rationale"],
+      "additionalProperties": true
+    },
+    "taxonomy": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "description": "The actual primary broken security control, not a CWE identifier.",
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "cwe": {
+          "description": "Copy the reviewed candidate's exact cwe_ids array. Use an empty array when no CWE is established; do not invent one.",
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        }
+      },
+      "required": ["category", "cwe"],
+      "additionalProperties": true
+    },
+    "codeEvidence": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*$" },
+        "label": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "path": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/repositoryPath"
+        },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "language": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "role": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "code": {
+          "description": "The genuine, nonempty source snippet at this evidence location.",
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "explanation": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        }
+      },
+      "required": ["id", "label", "path", "startLine", "code", "explanation"],
+      "additionalProperties": true
+    },
+    "findingAssessment": {
+      "anyOf": [
+        {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "level": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "rationale": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "why": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "textOrSummary": {
+      "anyOf": [
+        {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "source": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "sink": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "outcome": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "transformations": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            },
+            "evidenceRefs": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            },
+            "evidence_refs": false
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "findingReachability": {
+      "anyOf": [
+        {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "attacker": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "entrypoint": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "source": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "sink": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "outcome": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "preconditions": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            },
+            "evidenceRefs": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            },
+            "evidence_refs": false
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "findingValidation": {
+      "type": "object",
+      "properties": {
+        "assertions": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "counterEvidence": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            }
+          ]
+        },
+        "evidenceRefs": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "evidence_refs": false,
+        "limitations": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "method": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            { "type": "null" }
+          ]
+        },
+        "summary": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "disposition": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            { "type": "null" }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "findingAttackPath": {
+      "type": "object",
+      "properties": {
+        "assumptions": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "blindspots": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "controls": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "dataFlow": false,
+        "data_flow": false,
+        "dataflow": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textOrSummary"
+        },
+        "evidenceRefs": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "evidence_refs": false,
+        "impact": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/findingAssessment"
+            },
+            { "type": "null" }
+          ]
+        },
+        "likelihood": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/findingAssessment"
+            },
+            { "type": "null" }
+          ]
+        },
+        "limitations": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "preconditions": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "reachability": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/findingReachability"
+        },
+        "steps": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "summary": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        }
+      },
+      "additionalProperties": true
+    },
+    "finding": {
+      "type": "object",
+      "properties": {
+        "findingId": false,
+        "occurrenceId": false,
+        "fingerprints": false,
+        "ruleId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]*$",
+          "description": "A stable lowercase vulnerability-family slug, such as prototype-pollution.json-patch; a CWE is taxonomy, not a rule ID."
+        },
+        "identity": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/identity"
+        },
+        "title": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "summary": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "severity": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/severity"
+        },
+        "confidence": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/confidence"
+        },
+        "taxonomy": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/taxonomy"
+        },
+        "locations": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/location"
+          }
+        },
+        "writeup": {
+          "type": "object",
+          "properties": {
+            "reportPath": {
+              "type": "string",
+              "pattern": "^findings/([a-z0-9][a-z0-9._-]*)/\\1\\.md$"
+            }
+          },
+          "required": ["reportPath"],
+          "additionalProperties": true
+        },
+        "codeEvidence": {
+          "type": "array",
+          "items": {
+            "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/codeEvidence"
+          }
+        },
+        "code_evidence": false,
+        "rootCause": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "summary": {
+                  "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+                },
+                "code": false,
+                "language": false,
+                "evidenceRefs": {
+                  "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+                },
+                "evidence_refs": false
+              },
+              "required": ["summary"],
+              "additionalProperties": true
+            }
+          ]
+        },
+        "root_cause": false,
+        "remediation": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "validation": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/findingValidation"
+            },
+            { "type": "null" }
+          ]
+        },
+        "attackPath": {
+          "anyOf": [
+            {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/findingAttackPath"
+            },
+            { "type": "null" }
+          ]
+        },
+        "remediationTests": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "preventiveControls": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "sourceFindingIds": {
+              "type": "array",
+              "items": {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+              },
+              "uniqueItems": true,
+              "description": "Host-provided source finding references represented by this Deep reduction. Preserve every assigned reference exactly once."
+            },
+            "sourceFindings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+                  },
+                  "finding": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": true
+                  }
+                },
+                "required": ["id", "finding"],
+                "additionalProperties": false
+              },
+              "description": "Original source payloads retained by the host for lossless semantic merges."
+            },
+            "source": {
+              "description": "The actual finding producer. Use local_plugin only for a finding discovered by this plugin.",
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            }
+          },
+          "required": ["source"],
+          "additionalProperties": true
+        },
+        "extensions": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "ruleId",
+        "title",
+        "summary",
+        "severity",
+        "confidence",
+        "taxonomy",
+        "locations",
+        "remediation",
+        "provenance"
+      ],
+      "additionalProperties": true
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "includePaths": false,
+        "excludePaths": false,
+        "summary": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "artifactsReviewed": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        },
+        "runtimeStatus": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "validationMode": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "context": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "limitations": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+        }
+      },
+      "additionalProperties": true
+    },
+    "threatModel": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "assets": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            },
+            "trustBoundaries": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            },
+            "attackerCapabilities": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            },
+            "securityObjectives": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            },
+            "assumptions": {
+              "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+            }
+          },
+          "required": ["summary"],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "format": { "const": "markdown" },
+            "content": {
+              "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+            },
+            "scope": {
+              "type": "object",
+              "properties": {
+                "includePaths": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "excludePaths": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "summary": { "type": "string", "minLength": 1 }
+              },
+              "required": ["includePaths"],
+              "additionalProperties": true,
+              "description": "The modeled source scope, which may differ from the scan scope. Omit when unknown."
+            },
+            "origin": {
+              "enum": ["generated", "provided", "reconciled", "recovered"]
+            }
+          },
+          "required": ["format", "content"],
+          "additionalProperties": true
+        }
+      ],
+      "description": "Retained threat-model content. Existing structured models remain supported; Markdown documents preserve their complete original body."
+    },
+    "surface": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*$" },
+        "label": {
+          "description": "The meaningful name of the reviewed security surface.",
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "disposition": {
+          "enum": [
+            "reported",
+            "no_issue_found",
+            "rejected",
+            "not_applicable",
+            "needs_follow_up"
+          ],
+          "description": "The evidence-supported review result for this surface."
+        },
+        "receiptRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)artifacts/.+$"
+          }
+        },
+        "riskArea": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        },
+        "notes": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+        }
+      },
+      "required": ["label", "disposition"],
+      "additionalProperties": true
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "documentType": false,
+        "schemaVersion": false,
+        "scanId": false,
+        "mode": false,
+        "includePaths": false,
+        "excludePaths": false,
+        "receiptRefs": false,
+        "inventoryStrategy": false,
+        "surfaces": {
+          "type": "array",
+          "items": {
+            "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/surface"
+          }
+        },
+        "explicitExclusions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+              },
+              "reason": {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+              }
+            },
+            "required": ["pattern", "reason"],
+            "additionalProperties": true
+          }
+        },
+        "deferred": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+              },
+              "candidateId": {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/candidateId"
+              },
+              "reason": {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+              },
+              "paths": {
+                "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+              },
+              "surfaceIds": {
+                "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/textList"
+              }
+            },
+            "required": ["reason"],
+            "additionalProperties": true
+          },
+          "description": "Each supplied id identifies one task and must be unique within this draft. Reuse saved IDs in later updates."
+        },
+        "resolvedDeferred": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+              },
+              "reason": {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+              }
+            },
+            "required": ["id", "reason"],
+            "additionalProperties": false
+          },
+          "description": "On final Standard or diff drafts, close generic tasks by saved ID and completion reason. Reuse saved surface IDs for updates. Candidate tasks need findings or dispositions; redundant closure entries for those outcomes are ignored."
+        },
+        "openQuestions": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+                  },
+                  "followUpPrompt": {
+                    "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/nonEmptyText"
+                  }
+                },
+                "required": ["question"],
+                "additionalProperties": true
+              }
+            ]
+          }
+        }
+      },
+      "required": ["surfaces", "explicitExclusions", "deferred"],
+      "additionalProperties": true
+    },
+    "scanDraftInput": {
+      "type": "object",
+      "properties": {
+        "complete": {
+          "type": "boolean",
+          "description": "Set false to save progress without declaring this worker or parent audit finished. Omit or set true only for the terminal result. Put provisional candidates in coverage.deferred, not findings."
+        },
+        "scanId": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/scanId"
+        },
+        "handoffClaimToken": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/handoffClaimToken"
+        },
+        "scope": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/scope"
+        },
+        "threatModel": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/threatModel"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/finding"
+          }
+        },
+        "coverage": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/coverage"
+        }
+      },
+      "required": ["scanId", "findings", "coverage"],
+      "additionalProperties": false
+    },
+    "completedScanInput": {
+      "type": "object",
+      "properties": {
+        "scanId": {
+          "$ref": "agy-security://schemas/definitions/artifact-common.schema.json#/$defs/scanId"
+        },
+        "handoffClaimToken": {
+          "$ref": "agy-security://schemas/tools/scan-draft.schema.json#/$defs/handoffClaimToken"
+        }
+      },
+      "required": ["scanId"],
+      "additionalProperties": false
+    }
+  }
+}

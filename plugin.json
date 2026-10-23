@@ -1,0 +1,12 @@
+{
+  "name": "agy-security",
+  "displayName": "AGY Security",
+  "version": "1.0.0",
+  "description": "Full-stack Application Security Workbench & Multi-Agent Audit Suite for Google Antigravity: Standard/Diff/Deep repository scans, threat modeling, dynamic PoC validation, triage, minimal patching with adversarial bypass review, patch-risk assessment, disclosure writeups, architectural hardening, external scanner importers, deterministic owner attribution, and ground-truth benchmark evaluation.",
+  "logo": "assets/logo.png",
+  "suggestedPrompts": [
+    "Run an AGY Security standard scan on this repository and validate all findings",
+    "Audit the current Git diff with AGY Security and assess patch risk",
+    "Run the AGY Security invoice-desk lab benchmark and score recall/precision"
+  ]
+}

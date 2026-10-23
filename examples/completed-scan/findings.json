@@ -1,0 +1,57 @@
+{
+  "documentType": "agy-security.findings",
+  "schemaVersion": "1.0",
+  "scanId": "scan_example_001",
+  "findings": [
+    {
+      "findingId": "asf_92cc3d13f52a57dcbfe4acef",
+      "occurrenceId": "occ_a576204e84146ea61ad707b9",
+      "ruleId": "path-traversal.archive-extraction",
+      "identity": {
+        "anchor": "archive-entry-write-without-containment"
+      },
+      "fingerprints": {
+        "algorithm": "agy-security/v1",
+        "primary": "agy-security/v1:sha256:65a1bcaa214acef74bb66b0173dff1d8744de95009c044bac6215882780f1ec1"
+      },
+      "title": "Unsafe archive extraction can escape the output directory",
+      "summary": "An attacker-controlled path reaches a filesystem write without containment validation.",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "scoringSystem": "CVSS:3.1"
+      },
+      "confidence": {
+        "level": "high",
+        "rationale": "Direct source trace reaches the filesystem write without a containment check."
+      },
+      "taxonomy": {
+        "category": "path-traversal",
+        "cwe": [
+          "CWE-22"
+        ]
+      },
+      "locations": [
+        {
+          "path": "src/extract.py",
+          "startLine": 41,
+          "endLine": 44,
+          "role": "sink"
+        }
+      ],
+      "remediation": "Normalize destinations and reject entries that escape the extraction root.",
+      "validation": null,
+      "attackPath": null,
+      "remediationTests": [
+        "Assert that extracting an archive entry named `../escape.txt` fails without writing outside the extraction root."
+      ],
+      "preventiveControls": [
+        "Route all archive extraction through one helper that normalizes and validates destination paths."
+      ],
+      "provenance": {
+        "source": "local_plugin"
+      },
+      "extensions": {}
+    }
+  ]
+}
