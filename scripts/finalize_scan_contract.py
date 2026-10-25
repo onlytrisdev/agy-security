@@ -97,6 +97,10 @@ class ContractError(ValueError):
     """Raised when a completed scan does not satisfy the additive contract."""
 
 
+class ScanLocalIOError(ContractError):
+    """Raised when scan-local storage I/O fails, distinct from path validation."""
+
+
 class MissingScanLocalFileError(ContractError):
     """Raised when a scan-local file or its containing directory is absent."""
 
@@ -178,6 +182,10 @@ def _render_threat_model(model: dict[str, Any], provenance: dict[str, Any]) -> b
         raise ContractError(f"threat model projection failed: {exc}") from exc
 
 
+def manifest_is_sealed(scan: dict[str, Any]) -> bool:
+    return scan.get("sealedAt") is not None or scan.get("artifacts") not in (None, [])
+
+
 def _read_saved_threat_model(
     scan_dir: Path, *, validate_seal: bool = True, schema_dir: Path | None = None
 ) -> tuple[dict[str, Any], bytes] | None:
@@ -199,11 +207,7 @@ def _read_saved_threat_model(
             if filename == "scan-manifest.json"
             else manifest
         )
-        if (
-            validate_seal
-            and filename == "scan-manifest.json"
-            and (scan.get("sealedAt") is not None or scan.get("artifacts"))
-        ):
+        if validate_seal and filename == "scan-manifest.json" and manifest_is_sealed(scan):
             if "threatModel" not in scan:
                 _validate_manifest(manifest)
                 recorded_paths = {
@@ -428,7 +432,7 @@ def _require_safe_relative_path(value: object, context: str, *, allow_dot: bool 
     normalized = path.as_posix()
     if (
         (normalized == "." and not allow_dot)
-        or (len(value) >= 2 and value[0].isalpha() and value[1] == ":")
+        or re.match(r"^[A-Za-z]:", value)
         or "\\" in value
         or "\0" in value
         or any(ord(character) < 32 for character in value)
@@ -452,18 +456,28 @@ def _windows_unsafe_path_component(value: str) -> bool:
     return WINDOWS_UNSAFE_PATH_COMPONENT_RE.search(value) is not None
 
 
+def _scan_local_directory_error(message: str, error: OSError) -> ContractError:
+    if error.errno in {errno.ENOENT, errno.ENOTDIR, errno.ELOOP}:
+        return ContractError(message)
+    return ScanLocalIOError(message)
+
+
 def _require_scan_directory(scan_dir: Path) -> Path:
     scan_dir = scan_dir.absolute()
     try:
         metadata = scan_dir.lstat()
     except OSError as exc:
-        raise ContractError("scan directory: expected an existing non-symlink directory") from exc
+        raise _scan_local_directory_error(
+            "scan directory: expected an existing non-symlink directory", exc
+        ) from exc
     if not stat.S_ISDIR(metadata.st_mode):
         raise ContractError("scan directory: expected an existing non-symlink directory")
     try:
         resolved = scan_dir.resolve(strict=True)
     except OSError as exc:
-        raise ContractError("scan directory: expected an existing non-symlink directory") from exc
+        raise _scan_local_directory_error(
+            "scan directory: expected an existing non-symlink directory", exc
+        ) from exc
     if os.path.normcase(resolved) != os.path.normcase(scan_dir):
         raise ContractError("scan directory: expected a canonical non-symlink directory")
     return resolved
@@ -518,7 +532,9 @@ def _open_verified_scan_directory(
             os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
         )
     except OSError as exc:
-        raise ContractError("scan directory: expected an existing non-symlink directory") from exc
+        raise _scan_local_directory_error(
+            "scan directory: expected an existing non-symlink directory", exc
+        ) from exc
     opened = os.fstat(descriptor)
     opened_identity = (opened.st_dev, opened.st_ino)
     if opened_identity != observed_identity or (
@@ -770,15 +786,18 @@ def write_scan_local_bytes(
     if not _descriptor_relative_writes_available():
         if not _is_windows():
             raise ContractError("scan-local output requires descriptor-relative file operations")
+        backend = _windows_scan_local_files()
         try:
-            _windows_scan_local_files().atomic_write(
+            backend.atomic_write(
                 scan_dir,
                 relative_path,
                 payload,
                 expected_root_identity=expected_root_identity,
             )
-        except OSError as exc:
+        except backend.WindowsScanLocalPathError as exc:
             raise ContractError(f"{relative_path}: {exc}") from exc
+        except OSError as exc:
+            raise ScanLocalIOError(f"{relative_path}: {exc}") from exc
         return
     root_fd: int | None = None
     parent_fd: int | None = None
@@ -789,8 +808,8 @@ def write_scan_local_bytes(
         try:
             parent_fd = _open_scan_local_directory(root_fd, parts[:-1], create=True)
         except OSError as exc:
-            raise ContractError(
-                f"{relative_path}: expected a path inside the scan directory"
+            raise _scan_local_directory_error(
+                f"{relative_path}: expected a path inside the scan directory", exc
             ) from exc
         # The held descriptor is the authority for the validated parent. A
         # concurrent rename cannot redirect later operations through a
@@ -1075,6 +1094,8 @@ def _recover_unsealed_findings(
     schema_dir: Path,
     scan_dir: Path,
     warnings: list[str],
+    *,
+    current_contract: bool = False,
 ) -> list[str]:
     schema = _read_json(schema_dir / "findings.schema.json")
     properties = _require_dict(schema, "properties", "findings.schema")
@@ -1190,6 +1211,9 @@ def _recover_unsealed_findings(
                         f"Skipped malformed {auxiliary} for finding {index + 1}: {exc}."
                     )
             _validate_schema_node(finding, finding_schema, context, schema)
+            _require_safe_json_value(finding, context)
+            if current_contract:
+                _validate_current_findings({"findings": [finding]}, schema_dir)
         except ContractError as exc:
             warning = f"Skipped malformed finding {index + 1}: {exc}."
             warnings.append(warning)
@@ -1245,9 +1269,12 @@ def _recover_unsealed_coverage(
     scan_dir: Path,
     warnings: list[str],
     discarded_findings: list[str],
-) -> None:
+    *,
+    worker_draft: bool = False,
+) -> set[str]:
     schema = _read_json(schema_dir / "coverage.schema.json")
     properties = _require_dict(schema, "properties", "coverage.schema")
+    discarded_fields: set[str] = set()
     if (
         coverage.get("mode") == "deep_repository"
         and coverage.get("inventoryStrategy") != "repository"
@@ -1257,16 +1284,24 @@ def _recover_unsealed_coverage(
 
     surface_ids: set[str] = set()
     receipt_paths: dict[str, str] = {}
-    for field, label in (
+    fields = [
         ("surfaces", "coverage surface"),
         ("explicitExclusions", "coverage exclusion"),
         ("deferred", "deferred coverage item"),
-    ):
+    ]
+    if worker_draft:
+        if "openQuestions" in coverage:
+            _normalize_unsealed_open_questions(coverage)
+            fields.append(("openQuestions", "coverage open question"))
+        if "resolvedDeferred" in coverage:
+            fields.append(("resolvedDeferred", "resolved deferred item"))
+    for field, label in fields:
         array_schema = _require_dict(properties, field, "coverage.schema.properties")
         item_schema = _require_dict(array_schema, "items", f"coverage.schema.properties.{field}")
         items = coverage.get(field)
         if not isinstance(items, list):
             warnings.append(f"Skipped malformed {label} records: expected an array.")
+            discarded_fields.add(field)
             coverage[field] = []
             continue
 
@@ -1279,7 +1314,9 @@ def _recover_unsealed_coverage(
                 if field == "surfaces":
                     surface_receipt_paths = dict(receipt_paths)
                     surface_id = _require_str(item, "id", context)
-                    if surface_id in surface_ids:
+                    if worker_draft:
+                        _require_str(item, "label", context)
+                    if surface_id in surface_ids and not worker_draft:
                         raise ContractError(f"{context}.id: duplicate surface id")
                     disposition = item.get("disposition")
                     surface_recovered = False
@@ -1329,12 +1366,18 @@ def _recover_unsealed_coverage(
                     item["receiptRefs"] = recovered_receipts
                     if surface_recovered:
                         item["disposition"] = "needs_follow_up"
+                        discarded_fields.add(field)
 
                 if field == "deferred":
                     _validate_deferred_paths(item, context)
                 _validate_schema_node(item, item_schema, context)
+                if field == "resolvedDeferred":
+                    _validate_resolved_deferred({"resolvedDeferred": [item]})
+                if worker_draft:
+                    _require_safe_json_value(item, context)
             except ContractError as exc:
                 warnings.append(f"Skipped malformed {label} {index + 1}: {exc}.")
+                discarded_fields.add(field)
                 continue
 
             if field == "surfaces":
@@ -1346,6 +1389,13 @@ def _recover_unsealed_coverage(
 
     if discarded_findings:
         for surface in coverage["surfaces"]:
+            if (
+                worker_draft
+                and surface.get("candidateId")
+                and surface["disposition"] in {"rejected", "not_applicable"}
+            ):
+                # A valid explicit outcome can still resolve that worker's history.
+                continue
             surface["disposition"] = "needs_follow_up"
         coverage["deferred"].extend(
             {"id": f"discarded-finding-{index}", "reason": warning}
@@ -1360,9 +1410,13 @@ def _recover_unsealed_coverage(
                 "coverage.resolvedDeferred",
             )
             _validate_resolved_deferred(coverage)
+            if worker_draft:
+                _require_safe_json_value(coverage["resolvedDeferred"], "coverage.resolvedDeferred")
         except ContractError as exc:
             coverage.pop("resolvedDeferred")
             warnings.append(f"Skipped malformed resolved deferred work: {exc}.")
+            discarded_fields.add("resolvedDeferred")
+    return discarded_fields
 
 
 def _recover_unsealed_hardening(
@@ -2505,7 +2559,7 @@ def _sarif_locations(finding: dict[str, Any]) -> list[dict[str, Any]]:
     unique: dict[tuple[str, int, int], dict[str, Any]] = {}
     for location in locations:
         key = (
-            location["path"],
+            PurePosixPath(location["path"]).as_posix(),
             location["startLine"],
             location.get("endLine", location["startLine"]),
         )
@@ -2777,14 +2831,17 @@ def build_sarif_projection(
     manifest, findings, coverage, _ = _read_sealed_scan(scan_dir, schema_dir, "SARIF projection")
     sarif = build_sarif(manifest, findings, source_root)
     execution_successful = manifest["scan"]["status"] == "completed"
-    if not execution_successful or coverage["deferred"]:
+    messages = [item["reason"] for item in coverage["deferred"]]
+    for warning in manifest["scan"].get("warnings", []):
+        if warning not in messages:
+            messages.append(warning)
+    if not execution_successful or messages:
         run = sarif["runs"][0]
         run["invocations"] = [
             {
                 "executionSuccessful": execution_successful,
                 "toolExecutionNotifications": [
-                    {"level": "warning", "message": {"text": item["reason"]}}
-                    for item in coverage["deferred"]
+                    {"level": "warning", "message": {"text": message}} for message in messages
                 ],
             }
         ]
@@ -2810,13 +2867,20 @@ def csv_cell(value: Any) -> Any:
     return value
 
 
+def _has_identity_text(value: Any) -> bool:
+    # Match JavaScript String.trim when selecting optional identity metadata.
+    return isinstance(value, str) and bool(
+        value.strip(
+            "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680"
+            "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+            "\u2028\u2029\u202f\u205f\u3000\ufeff"
+        )
+    )
+
+
 def finding_candidate_id(finding: dict[str, Any]) -> str | None:
     provenance = finding.get("provenance")
-    if (
-        isinstance(provenance, dict)
-        and isinstance(value := provenance.get("candidateId"), str)
-        and value.strip()
-    ):
+    if isinstance(provenance, dict) and _has_identity_text(value := provenance.get("candidateId")):
         return value
     extensions = finding.get("extensions")
     if not isinstance(extensions, dict):
@@ -2825,10 +2889,27 @@ def finding_candidate_id(finding: dict[str, Any]) -> str | None:
         (
             value
             for field in ("candidateId", "reportId", "ledgerRowId")
-            if isinstance(value := extensions.get(field), str) and value.strip()
+            if _has_identity_text(value := extensions.get(field))
         ),
         None,
     )
+
+
+def _csv_candidate_id(finding: dict[str, Any]) -> str | None:
+    candidate_id = finding_candidate_id(finding)
+    if candidate_id is not None:
+        return candidate_id
+    # Preserve literal CSV metadata, such as FEFF, that is not a canonical identity.
+    for metadata, fields in (
+        (finding.get("provenance"), ("candidateId",)),
+        (finding.get("extensions"), ("candidateId", "reportId", "ledgerRowId")),
+    ):
+        if isinstance(metadata, dict):
+            for field in fields:
+                value = metadata.get(field)
+                if isinstance(value, str) and value.strip():
+                    return value
+    return None
 
 
 def finding_csv_columns(deep_scan: bool) -> tuple[str, ...]:
@@ -2861,7 +2942,7 @@ def build_csv_projection(findings: dict[str, Any], coverage: dict[str, Any]) -> 
             (
                 csv_cell(finding["occurrenceId"]),
                 csv_cell(finding["findingId"]),
-                *((csv_cell(finding_candidate_id(finding)),) if deep_scan else ()),
+                *((csv_cell(_csv_candidate_id(finding)),) if deep_scan else ()),
                 csv_cell(finding["title"]),
                 csv_cell(finding["summary"]),
                 csv_cell(finding["severity"]["level"]),
@@ -2896,6 +2977,30 @@ def build_findings_export(
     if export_format == "json":
         return findings_bytes
     return build_csv_projection(findings, coverage)
+
+
+def _is_sealed_artifact(scan_dir: Path, relative_output: str, artifact_paths: list[str]) -> bool:
+    try:
+        output_metadata = (scan_dir / relative_output).stat(follow_symlinks=False)
+    except FileNotFoundError:
+        output_metadata = None
+    except OSError as exc:
+        raise ContractError(f"{relative_output}: unable to inspect export output") from exc
+    for artifact_path in artifact_paths:
+        if artifact_path == relative_output:
+            return True
+        if output_metadata is None:
+            continue
+        descriptor = open_scan_local_file_descriptor(
+            scan_dir, artifact_path, f"sealed artifact {artifact_path}"
+        )
+        try:
+            artifact_metadata = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+        if os.path.samestat(output_metadata, artifact_metadata):
+            return True
+    return False
 
 
 def write_export_output(scan_dir: Path, output: Path, export_format: str, contents: bytes) -> None:
@@ -2948,40 +3053,25 @@ def write_export_output(scan_dir: Path, output: Path, export_format: str, conten
         for index, artifact in enumerate(artifacts)
         if isinstance(artifact, dict)
     ]
-    try:
-        output_metadata = output.stat(follow_symlinks=False)
-    except FileNotFoundError:
-        output_metadata = None
-    except OSError as exc:
-        raise ContractError(f"{relative_output}: unable to inspect export output") from exc
-    for artifact_path in artifact_paths:
-        if artifact_path == relative_output:
-            raise SealedArtifactError(
-                f"{export_format.upper()} output path cannot overwrite a sealed scan artifact"
-            )
-        if output_metadata is None:
-            continue
-        descriptor = open_scan_local_file_descriptor(
-            scan_dir, artifact_path, f"sealed artifact {artifact_path}"
+    if _is_sealed_artifact(scan_dir, relative_output, artifact_paths):
+        raise SealedArtifactError(
+            f"{export_format.upper()} output path cannot overwrite a sealed scan artifact"
         )
-        try:
-            artifact_metadata = os.fstat(descriptor)
-        finally:
-            os.close(descriptor)
-        if os.path.samestat(output_metadata, artifact_metadata):
-            raise SealedArtifactError(
-                f"{export_format.upper()} output path cannot overwrite a sealed scan artifact"
-            )
     write_scan_local_bytes(
         scan_dir, relative_output, contents, owner_read_write=export_format == "md"
     )
 
 
 def _write_sarif_projection_if_possible(
-    scan_dir: Path, source_root: Path | None = None, schema_dir: Path | None = None
+    scan_dir: Path,
+    source_root: Path | None = None,
+    schema_dir: Path | None = None,
+    *,
+    sealed_paths: list[str],
 ) -> None:
     try:
-        write_sarif_projection(scan_dir, source_root, schema_dir)
+        if not _is_sealed_artifact(scan_dir, "exports/results.sarif", sealed_paths):
+            write_sarif_projection(scan_dir, source_root, schema_dir)
     except (ContractError, OSError) as error:
         print(
             f"agy-security: warning: automatic SARIF export failed: {error}. "
@@ -3185,14 +3275,39 @@ def _write_prepared_scan_finalization(
     scan_dir = prepared.scan_dir
     scan = _require_dict(prepared.manifest, "scan", "manifest")
     if not prepared.was_sealed:
+        # Capture warnings before the first seal; later operation diagnostics must
+        # not change an existing scan's portable results.
+        # Escape surrogate-escaped filesystem bytes for the Unicode JSON contract.
+        warnings = list(
+            dict.fromkeys(
+                warning.encode("utf-8", errors="backslashreplace").decode("utf-8")
+                for warning in [
+                    *scan.get("warnings", []),
+                    *(projection_warnings or []),
+                    *prepared.warnings,
+                ]
+            )
+        )
+        if warnings:
+            scan["warnings"] = warnings
+            validate_against_schema(
+                prepared.manifest, prepared.schema_dir / "scan-manifest.schema.json"
+            )
         _write_scan_local_json(scan_dir, "findings.json", prepared.findings)
         _write_scan_local_json(scan_dir, "coverage.json", prepared.coverage)
-    write_scan_local_bytes(scan_dir, "report.md", prepared.report_markdown_bytes)
-    _remove_scan_local_file_if_exists(scan_dir, "report.html")
+    sealed_paths = (
+        [artifact["path"] for artifact in scan["artifacts"]] if prepared.was_sealed else []
+    )
+    if not _is_sealed_artifact(scan_dir, "report.md", sealed_paths):
+        write_scan_local_bytes(scan_dir, "report.md", prepared.report_markdown_bytes)
+    if not _is_sealed_artifact(scan_dir, "report.html", sealed_paths):
+        _remove_scan_local_file_if_exists(scan_dir, "report.html")
     if not prepared.was_sealed:
         _write_scan_local_json(scan_dir, "scan-manifest.json", prepared.manifest)
         _validate_existing_seal(scan_dir, scan)
-    _write_sarif_projection_if_possible(scan_dir, source_root, prepared.schema_dir)
+    _write_sarif_projection_if_possible(
+        scan_dir, source_root, prepared.schema_dir, sealed_paths=sealed_paths
+    )
     warning = write_threat_model_projection_if_possible(scan_dir, prepared.manifest)
     if (
         warning is not None

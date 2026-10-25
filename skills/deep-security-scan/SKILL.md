@@ -52,9 +52,11 @@ Use the coordinator tool in every host:
 
 ```text
 Native continuation: start_agy_security_deep_scan({ scanId, handoffClaimToken? })
-New conversation, CLI, or headless scan: start_agy_security_deep_scan({ targetPath, scope: ".", userContext? })
+New conversation, CLI, or headless scan: start_agy_security_deep_scan({ targetPath, scope: ".", userContext?, projectConfigPath? })
 Later calls in any host: start_agy_security_deep_scan({ scanId, handoffClaimToken? })
 ```
+
+Before a new target-based scan, inspect setup with `inspect_agy_security_setup({ targetPath, scope: ".", mode: "deep", projectConfigPath? })`. Show the worker count, subagents per worker, convergence threshold, review cap, discovery time limit, and their sources from `setup.deepScanConfig`. Supply a project YAML or JSON path only when selected. Pass that same path at launch. Native continuations use the saved `workspace.deepScanConfig`.
 
 **Antigravity Native Deep-Scan Subagent Swarm (`orchestration: "antigravity_subagents"`)**:
 When `start_agy_security_deep_scan` returns `orchestration: "antigravity_subagents"` (with `scanId` and `scanDir` registered as `mode: "deep"` in the workbench SQLite DB):
@@ -70,7 +72,7 @@ When `start_agy_security_deep_scan` returns `orchestration: "antigravity_subagen
 
 ## Complete the Parent Scan Once
 
-After the coordinator returns the canonical manifest and all three unsealed parent artifacts exist, call `complete_agy_security_scan({ scanId, handoffClaimToken? })` exactly once. The workbench validates and seals the existing canonical artifacts, generates `report.md`, indexes findings, and marks the scan complete. Never write the report yourself, resubmit the semantic draft, or retry completion in the same response.
+When the coordinator returns `completion`, the host has sealed the artifacts and generated `report.md`. Read measured usage from `completion.scan.usage`. If completing manually after a custom swarm or when canonical unsealed parent artifacts exist, call `complete_agy_security_scan({ scanId, handoffClaimToken? })` exactly once. The workbench validates and seals the existing canonical artifacts, generates `report.md`, indexes findings, and marks the scan complete. Never write the report yourself, resubmit the semantic draft, or retry completion in the same response.
 
 Detailed finding write-ups and hardening proposals remain optional, exactly as in an ordinary Standard scan; invoke `$agy-vulnerability-writeup` or `$agy-propose-security-hardening` only when the corresponding additional output is requested. Read `get_agy_security_completed_scan` only when requested structured or benchmark output actually requires the full sealed documents.
 
