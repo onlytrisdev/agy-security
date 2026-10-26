@@ -1,6 +1,6 @@
 {
   "name": "@onlytrisdev/agy-security",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Autonomous Multi-Agent Security Orchestration, Zero-Read Fast-Path, and Unrestricted Security Audit Plugin for Google Antigravity 2.0",
   "license": "Apache-2.0",
   "repository": {

@@ -1,7 +1,7 @@
 {
-  "agyVersion": "1.0.0",
+  "agyVersion": "1.0.1",
   "upstreamRepository": "openai/codex-security",
   "lastSyncedReleaseTag": "npm-v0.6.0",
-  "lastSyncedCommit": "796fa130e92787085ab36aa4313d8c4bd9414560",
-  "lastCheckedAt": "2026-10-25T12:46:36Z"
+  "lastSyncedCommit": "8ed8d9dffc766343c8534601286dc5980afcb1c8",
+  "lastCheckedAt": "2026-10-26T05:15:57Z"
 }
